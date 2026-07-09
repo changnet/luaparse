@@ -12,11 +12,13 @@
   "bugs": "https://github.com/fstirlitz/luaparse/issues",
   "license": "MIT",
   "author": "Oskar Schöldström <public@oxy.fi> (http://www.oxy.fi/)",
+  "types": "types/index.d.ts",
   "files": [
     "README.md",
     "LICENSE",
     "luaparse.js",
-    "bin/luaparse"
+    "bin/luaparse",
+	"types"
   ],
   "main": "luaparse.js",
   "bin": {
