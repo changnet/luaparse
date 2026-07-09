@@ -84,7 +84,7 @@
     // The variable's name will be passed as the only parameter
     , onLocalDeclaration: null
     // The version of Lua targeted by the parser (string; allowed values are
-    // '5.1', '5.2', '5.3').
+    // '5.1', '5.2', '5.3', '5.4', '5.5' and 'LuaJIT').
     , luaVersion: '5.1'
     // Encoding mode: how to interpret code units higher than U+007F in input
     , encodingMode: 'none'
@@ -235,6 +235,7 @@
     , cannotUseVararg: 'cannot use \'...\' outside a vararg function near \'%1\''
     , invalidCodeUnit: 'code unit U+%1 is not allowed in the current encoding mode'
     , unknownAttribute: 'unknown attribute \'%1\''
+    , closeNotAllowed: '\'close\' attribute is not allowed for global variables'
   };
 
   // ### Abstract Syntax Tree
@@ -377,6 +378,15 @@
       return {
           type: 'Chunk'
         , body: body
+      };
+    }
+
+    , globalStatement: function(variables, init, attribute) {
+      return {
+          type: 'GlobalStatement'
+        , variables: variables
+        , init: init
+        , attribute: attribute || null
       };
     }
 
@@ -1458,7 +1468,8 @@
       case 5:
         return 'break' === id || 'local' === id || 'until' === id || 'while' === id;
       case 6:
-        return 'elseif' === id || 'repeat' === id || 'return' === id;
+        return 'elseif' === id || 'repeat' === id || 'return' === id ||
+          (features.globalKeyword && 'global' === id);
       case 8:
         return 'function' === id;
     }
@@ -1849,6 +1860,7 @@
     if (Keyword === token.type) {
       switch (token.value) {
         case 'local':    next(); return parseLocalStatement(flowContext);
+        case 'global':   next(); return parseGlobalStatement(flowContext);
         case 'if':       next(); return parseIfStatement(flowContext);
         case 'return':   next(); return parseReturnStatement(flowContext);
         case 'function': next();
@@ -2172,6 +2184,86 @@
     }
   }
 
+  // The `global` keyword (Lua 5.5) explicitly declares global identifiers. It
+  // can either introduce a global function, a list of global variables that
+  // may optionally be initialised, or a collective declaration of all
+  // previously undeclared names.
+  //
+  //     global ::= 'global' 'function' Name funcdecl
+  //         | 'global' attnamelist ['=' explist]
+  //         | 'global' [attrib] '*'
+  //
+  // The `attnamelist` may be prefixed or postfixed with an attribute; only
+  // `const` is valid for globals, `close` is reserved for local variables.
+
+  function parseGlobalStatement(flowContext) {
+    var name, marker;
+
+    if (consume('function')) {
+      name = parseFunctionName();
+      // Global functions are not local; mark them explicitly as global.
+      return parseFunctionDeclaration(name, false, true);
+    }
+
+    // An optional prefix attribute applies to every declared name (or to the
+    // collective declaration).
+    var prefixAttribute = null;
+    if (features.attributes) {
+      prefixAttribute = parseAttribute();
+    }
+
+    // Collective declaration: `global [attrib] '*'` implicitly declares as
+    // globals every name not explicitly declared so far.
+    if (consume('*')) {
+      if (prefixAttribute !== null && prefixAttribute.name === 'close')
+        raise(token, errors.closeNotAllowed);
+      return finishNode(ast.globalStatement([], [], prefixAttribute));
+    }
+
+    if (Identifier === token.type) {
+      var variables = []
+        , init = [];
+
+      do {
+        if (trackLocations) marker = createLocationMarker();
+
+        name = parseIdentifier();
+        // Global variables are *not* added to the local scope; they remain
+        // global and are tracked as such for scope analysis.
+        if (options.scope) attachScope(name, false);
+
+        var attribute = null;
+        if (features.attributes) {
+          attribute = parseAttribute();
+        }
+
+        // A prefixed attribute applies to all names; a postfixed attribute
+        // applies to the single name it follows. Only `const` is valid for
+        // globals; `close` is reserved for local variables.
+        var effective = attribute || prefixAttribute;
+        if (effective !== null) {
+          if (effective.name === 'close')
+            raise(token, errors.closeNotAllowed);
+          if (trackLocations) pushLocation(marker);
+          variables.push(finishNode(ast.identifierWithAttribute(name, effective)));
+        } else {
+          variables.push(name);
+        }
+      } while (consume(','));
+
+      if (consume('=')) {
+        do {
+          var expression = parseExpectedExpression(flowContext);
+          init.push(expression);
+        } while (consume(','));
+      }
+
+      return finishNode(ast.globalStatement(variables, init, null));
+    }
+
+    raiseUnexpectedToken('<name>, \'*\' or \'function\'', token);
+  }
+
   //     assignment ::= varlist '=' explist
   //     var ::= Name | prefixexp '[' exp ']' | prefixexp '.' Name
   //     varlist ::= var {',' var}
@@ -2298,7 +2390,7 @@
   //     funcdecl ::= '(' [parlist] ')' block 'end'
   //     parlist ::= Name {',' Name} | [',' '...'] | '...'
 
-  function parseFunctionDeclaration(name, isLocal) {
+  function parseFunctionDeclaration(name, isLocal, isGlobal) {
     var flowContext = makeFlowContext();
     flowContext.pushScope();
 
@@ -2322,7 +2414,22 @@
         // No arguments are allowed after a vararg.
         else if (VarargLiteral === token.type) {
           flowContext.allowVararg = true;
-          parameters.push(parsePrimaryExpression(flowContext));
+          var varargStart = token.range[0];
+          var vararg = parsePrimaryExpression(flowContext);
+          // Lua 5.5 named varargs: `...name` binds all extra arguments to a
+          // table named `name`.
+          if (features.namedVarargs && Identifier === token.type) {
+            vararg.name = token.value;
+            next();
+            vararg.raw = input.slice(varargStart, previousToken.range[1]);
+            if (options.ranges)
+              vararg.range[1] = previousToken.range[1];
+            if (options.locations) {
+              vararg.loc.end.line = previousToken.lastLine || previousToken.line;
+              vararg.loc.end.column = previousToken.range[1] - (previousToken.lastLineStart || previousToken.lineStart);
+            }
+          }
+          parameters.push(vararg);
         } else {
           raiseUnexpectedToken('<name> or \'...\'', token);
         }
@@ -2337,7 +2444,10 @@
     if (options.scope) destroyScope();
 
     isLocal = isLocal || false;
-    return finishNode(ast.functionStatement(name, parameters, isLocal, body));
+    isGlobal = isGlobal || false;
+    var node = ast.functionStatement(name, parameters, isLocal, body);
+    if (isGlobal) node.isGlobal = true;
+    return finishNode(node);
   }
 
   // Parse the function name as identifiers and member expressions.
@@ -2740,6 +2850,22 @@
       noLabelShadowing: true,
       attributes: { 'const': true, 'close': true },
       relaxedUTF8: true
+    },
+    '5.5': {
+      labels: true,
+      emptyStatement: true,
+      hexEscapes: true,
+      skipWhitespaceEscape: true,
+      strictEscapes: true,
+      unicodeEscapes: true,
+      bitwiseOperators: true,
+      integerDivision: true,
+      relaxedBreak: true,
+      noLabelShadowing: true,
+      attributes: { 'const': true, 'close': true },
+      relaxedUTF8: true,
+      globalKeyword: true,
+      namedVarargs: true
     },
     'LuaJIT': {
       // XXX: LuaJIT language features may depend on compilation options; may need to

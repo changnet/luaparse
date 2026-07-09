@@ -70,6 +70,7 @@
       , './spec/for'
       , './spec/functioncalls'
       , './spec/functions'
+      , './spec/lua55'
       , './spec/labels'
       , './spec/literals'
       , './spec/local'
@@ -180,9 +181,11 @@
 
       switch (node.type) {
         case 'LocalStatement':
+        case 'GlobalStatement':
         case 'AssignmentStatement':
           visitKey('variables');
           visitKey('init');
+          visitKey('attribute');
           break;
         case 'UnaryExpression':
           visitKey('argument');

@@ -1,0 +1,35 @@
+// {"luaVersion":"5.5"}
+global x = 5
+global x, y = 1, 2
+global x
+global x, y
+global function foo() end
+global function foo(a) end
+global function foo(...) end
+global function foo(...args) end
+global function foo(a, ...args) end
+function f(...args) end
+function f(a, ...args) end
+function f(...args, x) end            -- FAIL
+global                                -- FAIL
+global function                       -- FAIL
+global 1                              -- FAIL
+global x,                             -- FAIL
+global function foo(...args, x) end   -- FAIL
+// --- global attribute declarations (Lua 5.5 manual §3.3.7) ---
+global <const> a
+global a <const>
+global <const> a, b, c
+global <const> a, b <const>
+global <const> a = 1
+global <const> a, b = 1, 2
+global <const> *
+global *
+// --- global close attribute is not allowed (only locals can be close) ---
+global <close> a                      -- FAIL
+global <close> *                      -- FAIL
+global a <close>                      -- FAIL
+// --- unknown attribute is rejected ---
+global <unknown> a                    -- FAIL
+// --- mixed prefix/postfix with init ---
+global <const> a, b <const> = 1, 2

@@ -26,8 +26,8 @@ export interface Options {
      * The identifier will be passed as the only parameter.
      */
     onLocalDeclaration: (identifier: ast.Identifier) => void;
-    /** The version of Lua the parser will target; supported values are '5.1', '5.2', '5.3', 'LuaJIT' and '5.4'. */
-    luaVersion: "5.1" | "5.2" | "5.3" | "LuaJIT" | "5.4";
+    /** The version of Lua the parser will target; supported values are '5.1', '5.2', '5.3', 'LuaJIT', '5.4' and '5.5'. */
+    luaVersion: "5.1" | "5.2" | "5.3" | "LuaJIT" | "5.4" | "5.5";
     /**
      * Whether to allow code points ≥ U+0080 in identifiers, like LuaJIT does.
      * See 'Note on character encodings' below if you wish to use this option.

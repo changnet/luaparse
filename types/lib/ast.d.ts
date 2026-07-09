@@ -59,8 +59,15 @@ export interface RepeatStatement extends Base<"RepeatStatement"> {
 }
 
 export interface LocalStatement extends Base<"LocalStatement"> {
-    variables: Identifier[];
+    variables: Array<Identifier | IdentifierWithAttribute>;
     init: Expression[];
+}
+
+export interface GlobalStatement extends Base<"GlobalStatement"> {
+    variables: Array<Identifier | IdentifierWithAttribute>;
+    init: Expression[];
+    /** Prefix attribute for a collective declaration (`global <const> *`); `null` otherwise. */
+    attribute?: Attribute | null;
 }
 
 export interface AssignmentStatement extends Base<"AssignmentStatement"> {
@@ -75,6 +82,7 @@ export interface CallStatement extends Base<"CallStatement"> {
 export interface FunctionDeclaration extends Base<"FunctionDeclaration"> {
     identifier: Identifier | MemberExpression | null;
     isLocal: boolean;
+    isGlobal?: boolean;
     parameters: Array<Identifier | VarargLiteral>;
     body: Statement[];
 }
@@ -102,6 +110,17 @@ export interface Identifier extends Base<"Identifier"> {
     name: string;
 }
 
+export interface Attribute extends Base<"Attribute"> {
+    /** Attribute name, e.g. `"const"` or `"close"`. */
+    name: string;
+}
+
+/** An identifier carrying an attribute declaration (`<const>` / `<close>`). */
+export interface IdentifierWithAttribute extends Base<"IdentifierWithAttribute"> {
+    name: string;
+    attribute: Attribute;
+}
+
 export interface StringLiteral extends Base<"StringLiteral"> {
     value: string;
     raw: string;
@@ -125,6 +144,8 @@ export interface NilLiteral extends Base<"NilLiteral"> {
 export interface VarargLiteral extends Base<"VarargLiteral"> {
     value: string;
     raw: string;
+    /** Present when the vararg is named (Lua 5.5 `...name` syntax); the name binds all extra arguments to a table. */
+    name?: string;
 }
 
 export interface TableKey extends Base<"TableKey"> {
@@ -240,6 +261,7 @@ export type Statement =
     | DoStatement
     | RepeatStatement
     | LocalStatement
+    | GlobalStatement
     | AssignmentStatement
     | CallStatement
     | FunctionDeclaration
@@ -256,4 +278,6 @@ export type Node =
     | TableKey
     | TableKeyString
     | TableValue
-    | Comment;
+    | Comment
+    | Attribute
+    | IdentifierWithAttribute;
